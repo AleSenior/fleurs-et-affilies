@@ -7,7 +7,7 @@
 </div>
 
 <form action="{data.floristeria[0].f_id}?/find" method="get" class="m-4">
-    <h2 class="my-2 text-3xl">Balance:</h2>
+    <h2 class="my-2 text-3xl">Balance del mes:</h2>
     <table class="w-full">
         <thead class="bg-gray-300 text-left w-full">
             <tr class="w-full">
@@ -58,29 +58,20 @@
 
 <div class="m-4">
     <h2 class="my-2 text-3xl">Catálogo:</h2>
-    <table class="w-full">
-        <thead class="bg-gray-300 text-left w-full">
-            <tr class="w-full">
-                <th>Código</th>
-                <th>Nombre</th>
-                <th>Descripción</th>
-                <th>Flor</th>
-                <th colspan="2">Color</th>
-            </tr>
-        </thead>
-        <tbody>
-        {#each data.catalogo as cat}
-            <tr class="m-4 px-4 py-3 bg-gray-200">
-                <td><strong>{cat.c_cod}</strong></td>
-                <td><strong>{cat.c_nom}</strong></td>
-                <td>{cat.c_des}</td>
-                <td><strong>{cat.f_nom}</strong></td>
-                <td>{cat.l_hex}</td>
-                <td>{cat.l_nom}</td>
-            </tr>
-        {/each}
-        </tbody>
-    </table>
+    {#each data.catalogo as cat}
+        <div class="my-2 px-4 py-3 bg-gray-200 flex flex-row justify-between items-center">
+            <div class="flex flex-col justify-center object-fill">
+                <h3 class="text-xl">{cat.c_nom}</h3>
+                <p>Código: {cat.c_cod}</p>
+                <p>Descripción: {cat.c_des}</p>
+                <p>Flor: {cat.f_nom}</p>
+                <p>Color: {cat.l_nom} ({cat.l_hex})</p>
+            </div>
+            <div>
+                <a href="/floristeria/{data.floristeria[0].f_id}/cat/{cat.c_cod}" class="h-1/2 bg-white border-2 border-gray-500 rounded-full px-5 py-2 mt-4 ml-2 hover:bg-gray-300 active:bg-gray-400">Detalles</a>
+            </div>
+        </div>
+    {/each}
 </div>
 
 <div class="m-4">

@@ -3,7 +3,8 @@ import sql from "$lib/db";
 export async function load({ params, url }) {
     const mes = url.searchParams.get('mes')||(new Date().getFullYear()+1).toString()+'-'+new Date().getMonth().toString();
     let mesConDia = mes+'-01';
-    const floristeria = await sql`select f.nombre f_nom,
+    const floristeria = await sql`select f.id f_id,
+                                 f.nombre f_nom,
                                  f.email f_eml,
                                  f.pagina_web f_web
                           from floristeria f
