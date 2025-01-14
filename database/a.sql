@@ -234,7 +234,7 @@ CREATE TABLE Factura_Venta_DET (
   cantidad NUMERIC(3) NOT NULL,
   valor_calidad NUMERIC(1),
   valor_precio NUMERIC(1),
-  promedio NUMERIC(1),
+  promedio NUMERIC(2,1),
   id_bouquet NUMERIC(2),
   cod_catalogo_floristeria_bouquet NUMERIC(8),
   id_floristeria_bouquet NUMERIC(5),
@@ -557,6 +557,366 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION generar_factura_venta_resumen(
+    p_id_factura NUMERIC
+) RETURNS TABLE (
+    floristeria_nombre VARCHAR,
+    floristeria_email VARCHAR,
+    cliente_nombre_completo VARCHAR,
+    fecha DATE,
+    monto_total NUMERIC(7, 2)
+) AS $$
+DECLARE
+    nombre_floristeria_local VARCHAR;
+    email_floristeria_local VARCHAR;
+    nombre_cliente_local VARCHAR;
+    fecha_factura_local DATE;
+    total_factura_local NUMERIC;
+BEGIN
+    SELECT
+        f.nombre,
+        f.email,
+        CAST(c.p_nombre || ' ' || COALESCE(c.s_nombre, '') || ' ' || c.p_apellido || ' ' || COALESCE(c.s_apellido, '') AS VARCHAR) AS cliente_nombre_completo,
+        fv_cab.fecha,
+        fv_cab.monto_total
+    INTO
+        nombre_floristeria_local, 
+        email_floristeria_local, 
+        nombre_cliente_local, 
+        fecha_factura_local, 
+        total_factura_local
+    FROM
+        Factura_Venta_CAB fv_cab
+    JOIN
+        Cliente c ON fv_cab.id_cliente = c.id
+    JOIN
+        Floristeria f ON fv_cab.id_floristeria = f.id
+    WHERE
+        fv_cab.id = p_id_factura;
+    -- Verificar si la factura existe
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontró la factura con ID: %', id_factura;
+    END IF;
+
+    -- Mostrar la información en formato estético
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '            FACTURA DE VENTA            ';
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'Floristería: %', nombre_floristeria_local;
+    RAISE NOTICE 'Email:       %', email_floristeria_local;
+    RAISE NOTICE 'Cliente:     %', nombre_cliente_local;
+    RAISE NOTICE 'Fecha:       %', fecha_factura_local;
+    RAISE NOTICE 'Total:       %', total_factura_local;
+    RAISE NOTICE '----------------------------------------';
+
+	RETURN QUERY
+    SELECT 
+        nombre_floristeria_local, 
+        email_floristeria_local, 
+        nombre_cliente_local, 
+        fecha_factura_local, 
+        total_factura_local;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION generar_factura_venta_det(
+    p_id_factura NUMERIC
+) RETURNS TABLE (
+    floristeria_nombre VARCHAR,
+    floristeria_email VARCHAR,
+    cliente_nombre_completo VARCHAR,
+    fecha DATE,
+    producto_nombre VARCHAR,
+    cantidad NUMERIC,
+    precio_unitario NUMERIC,
+    subtotal NUMERIC,
+    monto_total NUMERIC(7, 2)
+) AS $$
+DECLARE
+    nombre_floristeria_local VARCHAR;
+    email_floristeria_local VARCHAR;
+    nombre_cliente_local VARCHAR;
+    fecha_factura_local DATE;
+    total_factura_local NUMERIC;
+    producto RECORD;
+BEGIN
+    SELECT
+        f.nombre,
+        f.email,
+        CAST(c.p_nombre || ' ' || COALESCE(c.s_nombre, '') || ' ' || c.p_apellido || ' ' || COALESCE(c.s_apellido, '') AS VARCHAR) AS cliente_nombre_completo,
+        fv_cab.fecha,
+        fv_cab.monto_total
+    INTO
+        nombre_floristeria_local, 
+        email_floristeria_local, 
+        nombre_cliente_local, 
+        fecha_factura_local, 
+        total_factura_local
+    FROM
+        Factura_Venta_CAB fv_cab
+    JOIN
+        Cliente c ON fv_cab.id_cliente = c.id
+    JOIN
+        Floristeria f ON fv_cab.id_floristeria = f.id
+    WHERE
+        fv_cab.id = p_id_factura;
+    -- Verificar si la factura existe
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontró la factura con ID: %', id_factura;
+    END IF;
+
+    -- Mostrar la información en formato estético
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '            FACTURA DE VENTA            ';
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'Floristería: %', nombre_floristeria_local;
+    RAISE NOTICE 'Email:       %', email_floristeria_local;
+    RAISE NOTICE 'Cliente:     %', nombre_cliente_local;
+    RAISE NOTICE 'Fecha:       %', fecha_factura_local;
+    RAISE NOTICE 'Total:       %', total_factura_local;
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'DETALLE DE PRODUCTOS:';
+    RAISE NOTICE '----------------------------------------';
+
+    -- Iterar sobre los detalles de la factura y mostrar cada producto
+    FOR producto IN
+        SELECT 
+            cf.nombre AS producto_nombre,
+            dfv.cantidad,
+            hpu.precio_unitario,
+            (dfv.cantidad * hpu.precio_unitario) AS subtotal
+        FROM 
+            Factura_Venta_DET dfv
+        JOIN 
+            Catalogo_Floristeria cf
+            ON dfv.id_floristeria = cf.id_floristeria
+        JOIN 
+            Hist_Precio_Unitario hpu
+            ON cf.id_floristeria = hpu.id_floristeria 
+        WHERE 
+            dfv.id_factura_venta_cab = id_factura_venta_cab
+            AND hpu.fecha_inicio <= fecha_factura_local
+            AND (hpu.fecha_fin IS NULL OR hpu.fecha_fin >= fecha_factura_local)
+    LOOP
+        RAISE NOTICE 'Producto: % | Cantidad: % | Precio Unitario: % | Subtotal: %',
+            producto.producto_nombre,
+            producto.cantidad,
+            producto.precio_unitario,
+            producto.subtotal;
+    END LOOP;
+
+    -- Mostrar pie de la factura con el total
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'Total de la Factura: %', total_factura_local;
+    RAISE NOTICE '----------------------------------------';
+
+    -- Retornar los datos como una tupla
+    RETURN QUERY
+    SELECT 
+        nombre_floristeria_local, 
+        email_floristeria_local, 
+        nombre_cliente_local, 
+        fecha_factura_local,
+        cf.nombre AS producto_nombre,
+        dfv.cantidad,
+        hpu.precio_unitario,
+        (dfv.cantidad * hpu.precio_unitario) AS subtotal,
+        total_factura_local
+    FROM 
+        factura_venta_det dfv
+    JOIN 
+        catalogo_floristeria cf
+        ON dfv.id_floristeria = cf.id_floristeria 
+    JOIN 
+        hist_precio_unitario hpu
+        ON cf.id_floristeria = hpu.id_floristeria
+        and cf.codigo = hpu.cod_catalogo_floristeria
+    WHERE 
+        dfv.id_factura_venta_cab = id_factura_venta_cab
+        AND hpu.fecha_inicio = (
+            SELECT MAX(h.fecha_inicio)
+            FROM hist_precio_unitario h
+            WHERE h.id_floristeria = hpu.id_floristeria
+              AND h.cod_catalogo_floristeria = cf.codigo
+              AND h.fecha_inicio <= fecha_factura_local
+        );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Funcion para retornar las valoraciones de un cliente especifico
+CREATE OR REPLACE FUNCTION obtener_valoraciones_cliente(id_cliente_v NUMERIC)
+RETURNS TABLE(
+    nombre_producto VARCHAR,
+    nombre_floristeria VARCHAR,
+    valor_calidad NUMERIC,
+    valor_precio NUMERIC,
+    promedio NUMERIC,
+    nombre_cliente VARCHAR
+) AS $$
+DECLARE
+    detalle RECORD;
+    hay_resultados BOOLEAN := FALSE; -- Bandera para verificar si hay resultados
+    nombre_cliente_local VARCHAR; -- Variable para almacenar el nombre del cliente
+BEGIN
+    -- Obtener el nombre del cliente antes de procesar
+    SELECT (p_nombre || ' ' || p_apellido)::VARCHAR
+    INTO nombre_cliente_local
+    FROM Cliente
+    WHERE id = id_cliente_v;
+
+    -- Verificar si el cliente existe
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontró el cliente con ID: %', id_cliente_v;
+    END IF;
+
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '          VALORACIONES DEL CLIENTE       ';
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'Cliente: %', nombre_cliente_local;
+    RAISE NOTICE '----------------------------------------';
+
+    -- Iterar sobre los detalles de facturas del cliente
+    FOR detalle IN
+        SELECT 
+            cf.nombre AS producto,
+            f.nombre AS floristeria,
+            dfv.valor_calidad,
+            dfv.valor_precio,
+            dfv.promedio,
+            nombre_cliente_local AS cliente -- Usamos el nombre del cliente ya obtenido
+        FROM 
+            Factura_Venta_CAB fv
+        JOIN 
+            Factura_Venta_DET dfv 
+            ON fv.id = dfv.id_factura_venta_cab
+        JOIN 
+            Catalogo_Floristeria cf 
+            ON dfv.id_floristeria = cf.id_floristeria 
+        JOIN 
+            Floristeria f 
+            ON fv.id_floristeria = f.id
+        WHERE 
+            fv.id_cliente = id_cliente_v
+    LOOP
+        -- Activar la bandera porque se encontraron resultados
+        hay_resultados := TRUE;
+
+        -- Mostrar por consola cada valoración (sin repetir el nombre del cliente)
+        RAISE NOTICE 'Producto: % | Floristería: % | Calidad: % | Precio: % | Promedio: %',
+            detalle.producto,
+            detalle.floristeria,
+            detalle.valor_calidad,
+            detalle.valor_precio,
+            detalle.promedio;
+
+        -- Retornar cada detalle como fila en la salida de la función
+        RETURN QUERY SELECT 
+            detalle.producto,
+            detalle.floristeria,
+            detalle.valor_calidad,
+            detalle.valor_precio,
+            detalle.promedio,
+            detalle.cliente; -- Mantenemos el cliente en la tabla devuelta
+    END LOOP;
+
+    -- Si no hay resultados, mostrar mensaje
+    IF NOT hay_resultados THEN
+        RAISE NOTICE 'No se encontraron valoraciones para el cliente con ID: %', id_cliente_v;
+    END IF;
+
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '         FIN DE LAS VALORACIONES         ';
+    RAISE NOTICE '----------------------------------------';
+END;
+$$ LANGUAGE plpgsql;
+
+-- SELECT * FROM obtener_valoraciones_cliente(1);
+
+-- Funcion que retorna la valoracion promedio de cada producto comprado por el cliente
+CREATE OR REPLACE FUNCTION promedio_valoraciones_cliente(id_cliente_v NUMERIC)
+RETURNS TABLE(
+    nombre_producto VARCHAR,
+    nombre_floristeria VARCHAR,
+    promedio_calidad NUMERIC,
+    promedio_precio NUMERIC,
+    promedio_general NUMERIC
+) AS $$
+DECLARE
+    detalle RECORD;
+    hay_resultados BOOLEAN := FALSE; -- Bandera para verificar si hay resultados
+    nombre_cliente_local VARCHAR; -- Variable para almacenar el nombre del cliente
+BEGIN
+    -- Obtener el nombre del cliente antes de procesar
+    SELECT (p_nombre || ' ' || p_apellido)::VARCHAR
+    INTO nombre_cliente_local
+    FROM Cliente
+    WHERE id = id_cliente_v;
+
+    -- Verificar si el cliente existe
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'No se encontró el cliente con ID: %', id_cliente_v;
+    END IF;
+
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '        PROMEDIO DE VALORACIONES DEL CLIENTE       ';
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE 'Cliente: %', nombre_cliente_local;
+    RAISE NOTICE '----------------------------------------';
+
+    -- Iterar sobre los promedios de valoraciones agrupados por producto y floristería
+    FOR detalle IN
+        SELECT 
+            cf.nombre AS producto,
+            f.nombre AS floristeria,
+            ROUND(AVG(dfv.valor_calidad),1) AS promedio_calidad,
+            ROUND(AVG(dfv.valor_precio),1) AS promedio_precio,
+            ROUND(AVG(dfv.promedio),1) AS promedio_general
+        FROM 
+            Factura_Venta_CAB fv
+        JOIN 
+            Factura_Venta_DET dfv 
+            ON fv.id = dfv.id_factura_venta_cab
+        JOIN 
+            Catalogo_Floristeria cf 
+            ON dfv.id_floristeria = cf.id_floristeria 
+        JOIN 
+            Floristeria f 
+            ON fv.id_floristeria = f.id
+        WHERE 
+            fv.id_cliente = id_cliente_v
+        GROUP BY 
+            cf.nombre, f.nombre
+    LOOP
+        -- Activar la bandera porque se encontraron resultados
+        hay_resultados := TRUE;
+
+        -- Mostrar por consola el promedio de valoraciones para cada producto
+        RAISE NOTICE 'Producto: % | Floristería: % | Promedio Calidad: % | Promedio Precio: % | Promedio General: %',
+            detalle.producto,
+            detalle.floristeria,
+            detalle.promedio_calidad,
+            detalle.promedio_precio,
+            detalle.promedio_general;
+
+        -- Retornar cada promedio como fila en la salida de la función
+        RETURN QUERY SELECT 
+            detalle.producto,
+            detalle.floristeria,
+            detalle.promedio_calidad,
+            detalle.promedio_precio,
+            detalle.promedio_general;
+    END LOOP;
+
+    -- Si no hay resultados, mostrar mensaje
+    IF NOT hay_resultados THEN
+        RAISE NOTICE 'No se encontraron valoraciones para el cliente con ID: %', id_cliente_v;
+    END IF;
+
+    RAISE NOTICE '----------------------------------------';
+    RAISE NOTICE '        FIN DE LOS PROMEDIOS DE VALORACIONES         ';
+    RAISE NOTICE '----------------------------------------';
+END;
+$$ LANGUAGE plpgsql;
 -----------------------------------------------------------------------
 --------------- INSERTS -----------------------------------------------
 -----------------------------------------------------------------------
