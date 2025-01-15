@@ -917,6 +917,150 @@ BEGIN
     RAISE NOTICE '----------------------------------------';
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION generar_tabla_balance(
+	p_id_floristeria NUMERIC,
+	p_mes NUMERIC,
+	p_ano NUMERIC
+) RETURNS TABLE (
+	concepto TEXT,
+	numero_factura NUMERIC,
+	fecha TEXT,
+	ingreso NUMERIC,
+	egreso NUMERIC,
+	envio TEXT
+) AS $$
+DECLARE
+	inicio_mes DATE;
+BEGIN
+	IF p_mes NOT BETWEEN 1 AND 12 THEN
+		RAISE EXCEPTION 'Mes inválido';
+	END IF;
+	
+	inicio_mes := REPLACE(TO_CHAR(p_ano, '0000')||'-'||TO_CHAR(p_mes, '00')||'-01', ' ', '');
+	RETURN QUERY
+		select 'Venta' fac_con,
+				fv.id fac_num,
+			 	to_char(fv.fecha, 'DD/MM/YYYY') fac_fec,
+			 	fv.monto_total fac_ing,
+			 	null fac_egr,
+			 	'-' fac_env
+	  	from factura_venta_cab fv
+	  	where fv.id_floristeria = p_id_floristeria
+	  	and date_trunc('month', fv.fecha)::date = inicio_mes
+	  	union all
+	  	select 'Compra' fac_con,
+			 	fc.id fac_num,
+			 	to_char(fc.fecha, 'DD/MM/YYYY') fac_fec,
+			 	null fac_ing,
+			 	fc.monto_total fac_egr,
+			 	case when fc.envio then 'Si' else 'No' end fac_env
+	  	from factura_compra fc
+	  	where fc.id_floristeria = p_id_floristeria
+	  	and date_trunc('month', fc.fecha)::date = inicio_mes
+	  	order by fac_fec;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION generar_total_balance(
+	p_id_floristeria NUMERIC,
+	p_mes NUMERIC,
+	p_ano NUMERIC
+) RETURNS NUMERIC AS $$
+DECLARE
+	inicio_mes DATE;
+	total NUMERIC;
+BEGIN
+	IF p_mes NOT BETWEEN 1 AND 12 THEN
+		RAISE EXCEPTION 'Mes inválido';
+	END IF;
+	
+	inicio_mes := REPLACE(TO_CHAR(p_ano, '0000')||'-'||TO_CHAR(p_mes, '00')||'-01', ' ', '');
+	select sum(fac.monto_total) total
+	into total
+	from (select fv.monto_total
+		  from factura_venta_cab fv
+		  where fv.id_floristeria = p_id_floristeria
+		  and date_trunc('month', fv.fecha)::date = inicio_mes
+		  union all
+		  select -fc.monto_total
+		  from factura_compra fc
+		  where fc.id_floristeria = p_id_floristeria
+		  and date_trunc('month', fc.fecha)::date = inicio_mes) fac;
+	RETURN total;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION generar_hist_precios(
+	p_id_floristeria NUMERIC,
+	p_cod_catalogo NUMERIC
+) RETURNS TABLE (
+	fecha_inicio TEXT,
+	fecha_fin TEXT,
+	tam_tallo_cm NUMERIC,
+	precio_unitario NUMERIC
+) AS $$
+BEGIN
+	RETURN QUERY
+	select coalesce(to_char(h.fecha_inicio, 'DD/MM/YYYY'), '-'),
+		   coalesce(to_char(h.fecha_fin, 'DD/MM/YYYY'), '-'),
+		   h.tam_tallo_cm,
+		   h.precio_unitario
+	from hist_precio_unitario h
+	where h.id_floristeria = p_id_floristeria 
+	and h.cod_catalogo_floristeria = p_cod_catalogo
+	order by h.fecha_inicio desc;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE pop_hist_precio(
+	p_id_floristeria NUMERIC,
+	p_cod_catalogo NUMERIC
+) AS $$
+DECLARE
+	
+BEGIN
+    RAISE NOTICE 'Floristería: % | Catálogo: %', p_id_floristeria, p_cod_catalogo;
+    
+	DELETE FROM hist_precio_unitario
+	WHERE id_floristeria = p_id_floristeria
+	AND cod_catalogo_floristeria = p_cod_catalogo
+	AND fecha_fin IS NULL;
+
+	UPDATE hist_precio_unitario
+	SET fecha_fin = NULL
+	WHERE id_floristeria = p_id_floristeria
+	AND cod_catalogo_floristeria = p_cod_catalogo
+	AND fecha_inicio = (
+		select max(h.fecha_inicio)
+		from hist_precio_unitario h
+		where h.id_floristeria = p_id_floristeria
+		and h.cod_catalogo_floristeria = p_cod_catalogo
+	);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE push_hist_precio(
+	p_id_floristeria NUMERIC,
+	p_cod_catalogo NUMERIC,
+	p_precio_unitario NUMERIC,
+	p_tam_tallo_cm NUMERIC DEFAULT NULL,
+	p_fecha_inicio DATE DEFAULT CURRENT_DATE
+) AS $$
+DECLARE
+	
+BEGIN
+	INSERT INTO hist_precio_unitario(id_floristeria, cod_catalogo_floristeria, fecha_inicio, fecha_fin, precio_unitario, tam_tallo_cm)
+	VALUES (p_id_floristeria, p_cod_catalogo, p_fecha_inicio, NULL, p_precio_unitario, p_tam_tallo_cm);
+
+    UPDATE hist_precio_unitario
+	SET fecha_fin = p_fecha_inicio
+	WHERE id_floristeria = p_id_floristeria
+	AND cod_catalogo_floristeria = p_cod_catalogo
+    AND fecha_inicio < p_fecha_inicio
+	AND fecha_fin IS NULL;
+END;
+$$ LANGUAGE plpgsql;
 -----------------------------------------------------------------------
 --------------- INSERTS -----------------------------------------------
 -----------------------------------------------------------------------
@@ -1086,18 +1230,18 @@ INSERT INTO Hist_Precio_Unitario (id_floristeria, cod_catalogo_floristeria, fech
 (5, 10, '2024-11-05', 2.50, '2024-11-11', 70),
 (6, 11, '2024-11-06', 1.80, '2024-11-12', 45),
 (6, 12, '2024-11-06', 1.40, '2024-11-12', 40),
-(1, 1, '2024-11-07', 1.20, NULL, 80),
-(1, 2, '2024-11-07', 0.80, NULL, 60),
-(2, 3, '2024-11-08', 1.50, NULL, 70),
-(2, 4, '2024-11-08', 0.90, NULL, 50),
-(3, 5, '2024-11-09', 2.00, NULL, 55),
-(3, 6, '2024-11-09', 1.75, NULL, 60),
-(4, 7, '2024-11-10', 1.60, NULL, 40),
-(4, 8, '2024-11-10', 1.25, NULL, 45),
-(5, 9, '2024-11-11', 2.20, NULL, 60),
-(5, 10, '2024-11-11', 2.50, NULL, 80),
-(6, 11, '2024-11-12', 1.80, NULL, 55),
-(6, 12, '2024-11-12', 1.40, NULL, 50);
+(1, 1, '2024-11-07', 1.40, NULL, 70),
+(1, 2, '2024-11-07', 1.00, NULL, 50),
+(2, 3, '2024-11-08', 1.75, NULL, 60),
+(2, 4, '2024-11-08', 1.15, NULL, 40),
+(3, 5, '2024-11-09', 2.30, NULL, 45),
+(3, 6, '2024-11-09', 2.00, NULL, 50),
+(4, 7, '2024-11-10', 1.85, NULL, 30),
+(4, 8, '2024-11-10', 1.50, NULL, 35),
+(5, 9, '2024-11-11', 2.50, NULL, 50),
+(5, 10, '2024-11-11', 2.80, NULL, 70),
+(6, 11, '2024-11-12', 2.10, NULL, 45),
+(6, 12, '2024-11-12', 1.65, NULL, 40);
 
 INSERT INTO Contrato_CAB (fecha, clasificacion, prod_total_pcnt, cancelado, id_casa_subastadora, id_productor, numero_contrato_original) VALUES
 ('2024-01-15', 'CA', '55', NULL, 1, 1, NULL),

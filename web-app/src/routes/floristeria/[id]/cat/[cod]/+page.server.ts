@@ -1,4 +1,5 @@
 import sql from "$lib/db";
+import { redirect } from "@sveltejs/kit";
 
 export async function load({ params }) {
     const catalogo = await sql`select c.codigo c_cod,
@@ -29,4 +30,15 @@ export async function load({ params }) {
     return { catalogo: catalogo,
              historico: historico
      };
+}
+
+export const actions = {
+    createHist: async ({ request, params }) => {
+        const formData = await request.formData();
+        const tam_tallo_cm = formData.get('tam')?.toString()||'';
+        const precio_unitario = formData.get('pre')?.toString()||'';
+        const fecha_inicio = formData.get('ini')?.toString()||'';
+        await sql`CALL push_hist_precio(${Number.parseInt(params.id)}, ${Number.parseInt(params.cod)}, ${Number.parseFloat(precio_unitario)}, ${Number.parseInt(tam_tallo_cm)}, to_date(${fecha_inicio}, 'YYYY-MM-DD'));`.execute();
+        redirect(301, `/floristeria/${params.id}/cat/${params.cod}`);
+    }
 }

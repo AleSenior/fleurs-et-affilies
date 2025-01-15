@@ -1,6 +1,10 @@
-<script>
+<script lang="ts">
+    import { page } from '$app/stores';
     let { data } = $props();
     let newHistSwitch = $state(false);
+    const deleteHist = async () => {
+        await fetch(`/floristeria/6/cat/11`, {method: 'DELETE'});
+    };
 </script>
 
 <div class="m-4">
@@ -23,15 +27,21 @@
                 <th>Fecha de fin</th>
                 <th>Tamaño de tallo (cm)</th>
                 <th>Precio por flor</th>
+                <th>Eliminar</th>
             </tr>
         </thead>
         <tbody>
-            {#each data.historico as hist}
+            {#each data.historico as hist (hist.h_ini)}
                 <tr class="bg-gray-100 text-left w-full">
                     <td>{hist.h_ini}</td>
                     <td>{hist.h_fin}</td>
                     <td>{hist.h_tam}</td>
                     <td>{hist.h_pre}</td>
+                    {#if hist.h_fin == "-"}
+                        <td><button class="bg-blue-500 text-white w-full hover:bg-blue-600 active:bg-blue-700" onclick={deleteHist}>-</button></td>
+                    {:else}
+                        <td></td>
+                    {/if}
                 </tr>
             {/each}
             {#if newHistSwitch}
@@ -39,7 +49,7 @@
                     <td><input type="date" name="ini" value={new Date().toISOString().slice(0, 10)} class="border border-gray-300 w-full px-5"></td>
                     <td>-</td>
                     <td><input type="number" name="tam" class="border border-gray-300 w-full px-5"></td>
-                    <td><input type="number" name="pre" class="border border-gray-300 w-full px-5"></td>
+                    <td><input type="number" name="pre" step="0.01" class="border border-gray-300 w-full px-5"></td>
                 </tr>
                 <tr>
                     <td colspan="2" class="text-center bg-gray-100"><button class="w-full bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700" onclick={() => {newHistSwitch = false}}>Cancelar</button></td>
